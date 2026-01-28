@@ -1,529 +1,35 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { Search, ChevronDown, ChevronUp, Star, Clock, GitCompare, X, Heart, Download, Upload, Share2, FileText, Printer, Info, BookOpen, Microscope, Filter, ArrowUpDown, Zap, Target, Layers, CheckCircle2 } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, Star, Clock, GitCompare, X, Download, Upload, Share2, FileText, Printer, Info, BookOpen, Microscope, Filter, Zap, Target, Layers, CheckCircle2 } from 'lucide-react';
 
 const HaematopathologyReference = () => {
+  // Core state
   const [activeTab, setActiveTab] = useState('aml');
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedCards, setExpandedCards] = useState({});
   const [favorites, setFavorites] = useState([]);
   const [recentSearches, setRecentSearches] = useState([]);
+
+  // Compare state
   const [compareMode, setCompareMode] = useState(false);
   const [selectedForCompare, setSelectedForCompare] = useState([]);
+
+  // UI state
   const [showFavorites, setShowFavorites] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
-  const [searchFilter, setSearchFilter] = useState('all'); // 'all', 'name', 'gene', 'features'
-  const [prognosisFilter, setPrognosisFilter] = useState('all'); // 'all', 'good', 'intermediate', 'poor'
-  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
-  const [highlightedSuggestion, setHighlightedSuggestion] = useState(-1);
-  const [globalSearch, setGlobalSearch] = useState(false); // Search across all categories
-  const [searchResultsCount, setSearchResultsCount] = useState(0);
+
+  // Search filters
+  const [searchFilter, setSearchFilter] = useState('all');
+  const [prognosisFilter, setPrognosisFilter] = useState('all');
+  const [globalSearch, setGlobalSearch] = useState(false);
+
+  // Refs
   const fileInputRef = useRef(null);
   const exportMenuRef = useRef(null);
   const searchInputRef = useRef(null);
 
-  // Load favorites and recent searches from localStorage
-  useEffect(() => {
-    try {
-      const savedFavorites = localStorage.getItem('hematpath-favorites');
-      const savedRecent = localStorage.getItem('hematpath-recent');
-
-      if (savedFavorites) {
-        setFavorites(JSON.parse(savedFavorites));
-      }
-      if (savedRecent) {
-        setRecentSearches(JSON.parse(savedRecent));
-      }
-    } catch (error) {
-      console.error('Error loading saved data:', error);
-    }
-  }, []);
-
-  // Save favorites to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('hematpath-favorites', JSON.stringify(favorites));
-    } catch (error) {
-      console.error('Error saving favorites:', error);
-    }
-  }, [favorites]);
-
-  // Save recent searches to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('hematpath-recent', JSON.stringify(recentSearches));
-    } catch (error) {
-      console.error('Error saving recent searches:', error);
-    }
-  }, [recentSearches]);
-
-  // Add to recent searches when search term changes
-  useEffect(() => {
-    if (searchTerm.trim() && searchTerm.length > 2) {
-      const timer = setTimeout(() => {
-        addRecentSearch(searchTerm);
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [searchTerm]);
-
-  // Close export menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target)) {
-        setShowExportMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const toggleCard = (id) => {
-    setExpandedCards(prev => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  const toggleFavorite = (disease, category, prognosis) => {
-    const favoriteItem = {
-      disease,
-      category,
-      prognosis,
-      id: `${category}-${prognosis}-${disease.name}`
-    };
-    setFavorites(prev => {
-      const exists = prev.find(f => f.id === favoriteItem.id);
-      if (exists) {
-        return prev.filter(f => f.id !== favoriteItem.id);
-      } else {
-        return [...prev, favoriteItem];
-      }
-    });
-  };
-
-  const isFavorite = (disease, category, prognosis) => {
-    const id = `${category}-${prognosis}-${disease.name}`;
-    return favorites.some(f => f.id === id);
-  };
-
-  const addRecentSearch = (term) => {
-    setRecentSearches(prev => {
-      const filtered = prev.filter(s => s !== term);
-      return [term, ...filtered].slice(0, 10);
-    });
-  };
-
-  const clearRecentSearches = () => {
-    setRecentSearches([]);
-    try {
-      localStorage.removeItem('hematpath-recent');
-    } catch (error) {
-      console.error('Error clearing recent searches:', error);
-    }
-  };
-
-  const toggleCompareSelection = (disease, category, prognosis) => {
-    const item = {
-      disease,
-      category,
-      prognosis,
-      id: `${category}-${prognosis}-${disease.name}`
-    };
-    setSelectedForCompare(prev => {
-      const exists = prev.find(s => s.id === item.id);
-      if (exists) {
-        return prev.filter(s => s.id !== item.id);
-      } else {
-        if (prev.length >= 4) {
-          alert('Maximum 4 diseases for comparison');
-          return prev;
-        }
-        return [...prev, item];
-      }
-    });
-  };
-
-  const isSelectedForCompare = (disease, category, prognosis) => {
-    const id = `${category}-${prognosis}-${disease.name}`;
-    return selectedForCompare.some(s => s.id === id);
-  };
-
-  // Generate search suggestions based on all diseases
-  const searchSuggestions = useMemo(() => {
-    if (!searchTerm || searchTerm.length < 2) return [];
-
-    const term = searchTerm.toLowerCase();
-    const suggestions = new Set();
-
-    Object.keys(diseases).forEach(category => {
-      Object.keys(diseases[category]).forEach(subcategory => {
-        diseases[category][subcategory].forEach(disease => {
-          // Add disease names
-          if (disease.name.toLowerCase().includes(term)) {
-            suggestions.add({ type: 'name', text: disease.name, category });
-          }
-          // Add genes
-          if (disease.gene.toLowerCase().includes(term)) {
-            suggestions.add({ type: 'gene', text: disease.gene, category });
-          }
-          // Add features
-          disease.features.forEach(feature => {
-            if (feature.toLowerCase().includes(term) && feature.length < 50) {
-              suggestions.add({ type: 'feature', text: feature, category });
-            }
-          });
-        });
-      });
-    });
-
-    return Array.from(suggestions).slice(0, 8);
-  }, [searchTerm]);
-
-  // Handle keyboard navigation in search suggestions
-  const handleSearchKeyDown = (e) => {
-    if (!showSearchSuggestions || searchSuggestions.length === 0) return;
-
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setHighlightedSuggestion(prev =>
-        prev < searchSuggestions.length - 1 ? prev + 1 : 0
-      );
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setHighlightedSuggestion(prev =>
-        prev > 0 ? prev - 1 : searchSuggestions.length - 1
-      );
-    } else if (e.key === 'Enter' && highlightedSuggestion >= 0) {
-      e.preventDefault();
-      const suggestion = searchSuggestions[highlightedSuggestion];
-      setSearchTerm(suggestion.text);
-      setShowSearchSuggestions(false);
-      setHighlightedSuggestion(-1);
-    } else if (e.key === 'Escape') {
-      setShowSearchSuggestions(false);
-      setHighlightedSuggestion(-1);
-    }
-  };
-
-  // Quick search presets
-  const quickSearchTerms = [
-    { label: 'Good Prognosis', filter: () => setPrognosisFilter('good') },
-    { label: 'Poor Prognosis', filter: () => setPrognosisFilter('poor') },
-    { label: 'JAK2', term: 'JAK2' },
-    { label: 'FLT3', term: 'FLT3' },
-    { label: 'NPM1', term: 'NPM1' },
-    { label: 'BCR::ABL1', term: 'BCR::ABL1' },
-    { label: 'TP53', term: 'TP53' },
-    { label: 'BRAF', term: 'BRAF' },
-  ];
-
-  // Export functions
-  const exportAsJSON = () => {
-    const exportData = {
-      version: '1.0',
-      exportDate: new Date().toISOString(),
-      exportedBy: 'Haematopathology Reference Tool',
-      favorites: favorites,
-      totalCount: favorites.length
-    };
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `hematpath-favorites-${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    setShowExportMenu(false);
-  };
-
-  const exportAsText = () => {
-    let textContent = `HAEMATOPATHOLOGY REFERENCE - FAVORITES LIST\n`;
-    textContent += `Exported: ${new Date().toLocaleString()}\n`;
-    textContent += `Total Items: ${favorites.length}\n`;
-    textContent += `${'='.repeat(70)}\n\n`;
-
-    // Group by category
-    const grouped = favorites.reduce((acc, fav) => {
-      if (!acc[fav.category]) acc[fav.category] = {};
-      if (!acc[fav.category][fav.prognosis]) acc[fav.category][fav.prognosis] = [];
-      acc[fav.category][fav.prognosis].push(fav);
-      return acc;
-    }, {});
-
-    Object.keys(grouped).forEach(category => {
-      textContent += `\n${category.toUpperCase()}\n${'-'.repeat(70)}\n`;
-
-      Object.keys(grouped[category]).forEach(prognosis => {
-        textContent += `\n  ${prognosis.toUpperCase()}\n`;
-        grouped[category][prognosis].forEach((fav, idx) => {
-          textContent += `\n  ${idx + 1}. ${fav.disease.name}\n`;
-          textContent += `     Gene: ${fav.disease.gene}\n`;
-          textContent += `     Features:\n`;
-          fav.disease.features.forEach(feature => {
-            textContent += `     - ${feature}\n`;
-          });
-        });
-      });
-    });
-
-    textContent += `\n${'='.repeat(70)}\n`;
-    textContent += `Generated by Haematopathology Reference Tool\n`;
-    textContent += `Based on AMP Guidelines | Revised July 2025\n`;
-
-    const blob = new Blob([textContent], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `hematpath-favorites-${new Date().toISOString().split('T')[0]}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    setShowExportMenu(false);
-  };
-
-  const exportAsPDF = () => {
-    // Create printable HTML
-    let htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <title>Haematopathology Reference - Favorites</title>
-        <style>
-          @page { margin: 2cm; }
-          body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-          }
-          .header {
-            text-align: center;
-            border-bottom: 3px solid #2563eb;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
-          }
-          .header h1 {
-            color: #2563eb;
-            margin: 0;
-            font-size: 24px;
-          }
-          .header p {
-            margin: 5px 0;
-            color: #666;
-            font-size: 12px;
-          }
-          .category {
-            margin-top: 30px;
-            page-break-inside: avoid;
-          }
-          .category-header {
-            background: #2563eb;
-            color: white;
-            padding: 10px 15px;
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 15px;
-          }
-          .prognosis-section {
-            margin-bottom: 20px;
-            page-break-inside: avoid;
-          }
-          .prognosis-header {
-            background: #e5e7eb;
-            padding: 8px 12px;
-            font-weight: bold;
-            font-size: 14px;
-            margin-bottom: 10px;
-          }
-          .disease-card {
-            border: 2px solid #d1d5db;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 15px;
-            page-break-inside: avoid;
-          }
-          .disease-card.good { border-color: #10b981; background: #f0fdf4; }
-          .disease-card.intermediate { border-color: #f59e0b; background: #fffbeb; }
-          .disease-card.poor { border-color: #ef4444; background: #fef2f2; }
-          .disease-name {
-            font-size: 16px;
-            font-weight: bold;
-            color: #1f2937;
-            margin-bottom: 5px;
-          }
-          .disease-gene {
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-            font-weight: bold;
-            color: #4b5563;
-            margin-bottom: 10px;
-          }
-          .features {
-            margin-left: 20px;
-          }
-          .features li {
-            margin-bottom: 5px;
-            font-size: 13px;
-          }
-          .footer {
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 2px solid #e5e7eb;
-            text-align: center;
-            font-size: 11px;
-            color: #666;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>HAEMATOPATHOLOGY REFERENCE</h1>
-          <p><strong>Favorites List</strong></p>
-          <p>Exported: ${new Date().toLocaleString()}</p>
-          <p>Total Items: ${favorites.length}</p>
-        </div>
-    `;
-
-    // Group by category
-    const grouped = favorites.reduce((acc, fav) => {
-      if (!acc[fav.category]) acc[fav.category] = {};
-      if (!acc[fav.category][fav.prognosis]) acc[fav.category][fav.prognosis] = [];
-      acc[fav.category][fav.prognosis].push(fav);
-      return acc;
-    }, {});
-
-    Object.keys(grouped).forEach(category => {
-      htmlContent += `<div class="category">`;
-      htmlContent += `<div class="category-header">${category.toUpperCase()}</div>`;
-
-      Object.keys(grouped[category]).forEach(prognosis => {
-        htmlContent += `<div class="prognosis-section">`;
-        htmlContent += `<div class="prognosis-header">${prognosis}</div>`;
-
-        grouped[category][prognosis].forEach(fav => {
-          const prognosisClass = ['good', 'intermediate', 'poor'].includes(prognosis) ? prognosis : '';
-          htmlContent += `<div class="disease-card ${prognosisClass}">`;
-          htmlContent += `<div class="disease-name">${fav.disease.name}</div>`;
-          htmlContent += `<div class="disease-gene">${fav.disease.gene}</div>`;
-          htmlContent += `<ul class="features">`;
-          fav.disease.features.forEach(feature => {
-            htmlContent += `<li>${feature}</li>`;
-          });
-          htmlContent += `</ul></div>`;
-        });
-
-        htmlContent += `</div>`;
-      });
-
-      htmlContent += `</div>`;
-    });
-
-    htmlContent += `
-        <div class="footer">
-          <p><strong>Clinical reference tool for professional use only. Not for diagnostic purposes.</strong></p>
-          <p>Content from Association for Molecular Pathology (AMP) | Revised July 2025</p>
-          <p>Generated by Haematopathology Reference Tool</p>
-        </div>
-      </body>
-      </html>
-    `;
-
-    // Open in new window for printing
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.write(htmlContent);
-      printWindow.document.close();
-      printWindow.focus();
-
-      // Wait for content to load then print
-      setTimeout(() => {
-        printWindow.print();
-      }, 500);
-    }
-
-    setShowExportMenu(false);
-  };
-
-  const importFromJSON = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const importData = JSON.parse(e.target.result);
-
-        // Validate format
-        if (!importData.favorites || !Array.isArray(importData.favorites)) {
-          alert('Invalid file format');
-          return;
-        }
-
-        // Ask for confirmation
-        const confirmImport = window.confirm(
-          `Import ${importData.favorites.length} favorites?\n\n` +
-          `This will add to your existing ${favorites.length} favorites.\n` +
-          `Duplicates will be skipped.`
-        );
-
-        if (confirmImport) {
-          // Merge with existing favorites, avoiding duplicates
-          const existingIds = new Set(favorites.map(f => f.id));
-          const newFavorites = importData.favorites.filter(f => !existingIds.has(f.id));
-
-          setFavorites(prev => [...prev, ...newFavorites]);
-          alert(`Successfully imported ${newFavorites.length} new favorites!`);
-        }
-      } catch (error) {
-        alert('Error reading file. Please ensure it\'s a valid JSON export.');
-      }
-    };
-    reader.readAsText(file);
-
-    // Reset file input
-    if (event.target) {
-      event.target.value = '';
-    }
-  };
-
-  const copyShareableText = () => {
-    let shareText = `📚 Haematopathology Reference - My Favorites (${favorites.length} items)\n\n`;
-
-    const grouped = favorites.reduce((acc, fav) => {
-      if (!acc[fav.category]) acc[fav.category] = [];
-      acc[fav.category].push(fav);
-      return acc;
-    }, {});
-
-    Object.keys(grouped).forEach(category => {
-      shareText += `${category.toUpperCase()}:\n`;
-      grouped[category].forEach(fav => {
-        shareText += `• ${fav.disease.name} (${fav.disease.gene})\n`;
-      });
-      shareText += `\n`;
-    });
-
-    shareText += `Generated by Haematopathology Reference Tool\nBased on AMP Guidelines | Revised 7/2025`;
-
-    navigator.clipboard.writeText(shareText).then(() => {
-      alert('Shareable text copied to clipboard! You can now paste it into email, WhatsApp, or any messaging app.');
-      setShowExportMenu(false);
-    }).catch(() => {
-      alert('Failed to copy to clipboard. Please try again.');
-    });
-  };
-
-  const categories = [
-    { id: 'aml', label: 'AML', icon: '🔴', description: 'Acute Myeloid Leukemia' },
-    { id: 'mds', label: 'MDS', icon: '🟡', description: 'Myelodysplastic Syndromes' },
-    { id: 'mpn', label: 'MPN', icon: '🟢', description: 'Myeloproliferative Neoplasms' },
-    { id: 'bcell', label: 'B-cell', icon: '🔵', description: 'B-cell Neoplasms' },
-    { id: 'tcell', label: 'T-cell', icon: '🟣', description: 'T-cell Neoplasms' },
-    { id: 'other', label: 'Other', icon: '⚪', description: 'Other Haematological Disorders' }
-  ];
-
+  // ============= DISEASE DATA =============
   const diseases = {
     aml: {
       good: [
@@ -838,7 +344,7 @@ const HaematopathologyReference = () => {
           ]
         },
         {
-          name: 'CLL/SLL - Good',
+          name: 'CLL/SLL - Good Prognosis',
           gene: 'del(13q14) sole',
           features: ['Mutated IGHV (≥2%)']
         },
@@ -848,7 +354,7 @@ const HaematopathologyReference = () => {
           features: ['NOTCH1 and/or SF3B1 mutation']
         },
         {
-          name: 'CLL/SLL - Poor',
+          name: 'CLL/SLL - Poor Prognosis',
           gene: '17p13 deletion, del(11)',
           features: ['TP53 and/or BIRC3 mutation']
         },
@@ -1047,19 +553,137 @@ const HaematopathologyReference = () => {
     }
   };
 
+  // ============= CATEGORY DEFINITIONS =============
+  const categories = [
+    { id: 'aml', label: 'AML', icon: '🔴', description: 'Acute Myeloid Leukemia' },
+    { id: 'mds', label: 'MDS', icon: '🟡', description: 'Myelodysplastic Syndromes' },
+    { id: 'mpn', label: 'MPN', icon: '🟢', description: 'Myeloproliferative Neoplasms' },
+    { id: 'bcell', label: 'B-cell', icon: '🔵', description: 'B-cell Neoplasms' },
+    { id: 'tcell', label: 'T-cell', icon: '🟣', description: 'T-cell Neoplasms' },
+    { id: 'other', label: 'Other', icon: '⚪', description: 'Other Haematological Disorders' }
+  ];
+
+  // Quick search presets
+  const quickSearchTerms = [
+    { label: 'JAK2', term: 'JAK2' },
+    { label: 'FLT3', term: 'FLT3' },
+    { label: 'NPM1', term: 'NPM1' },
+    { label: 'BCR::ABL1', term: 'BCR::ABL1' },
+    { label: 'TP53', term: 'TP53' },
+    { label: 'BRAF', term: 'BRAF' },
+  ];
+
+  // ============= EFFECTS =============
+  // Load from localStorage
+  useEffect(() => {
+    try {
+      const savedFavorites = localStorage.getItem('hematpath-favorites');
+      const savedRecent = localStorage.getItem('hematpath-recent');
+      if (savedFavorites) setFavorites(JSON.parse(savedFavorites));
+      if (savedRecent) setRecentSearches(JSON.parse(savedRecent));
+    } catch (error) {
+      console.error('Error loading saved data:', error);
+    }
+  }, []);
+
+  // Save favorites
+  useEffect(() => {
+    try {
+      localStorage.setItem('hematpath-favorites', JSON.stringify(favorites));
+    } catch (error) {
+      console.error('Error saving favorites:', error);
+    }
+  }, [favorites]);
+
+  // Save recent searches
+  useEffect(() => {
+    try {
+      localStorage.setItem('hematpath-recent', JSON.stringify(recentSearches));
+    } catch (error) {
+      console.error('Error saving recent searches:', error);
+    }
+  }, [recentSearches]);
+
+  // Add to recent searches
+  useEffect(() => {
+    if (searchTerm.trim() && searchTerm.length > 2) {
+      const timer = setTimeout(() => {
+        setRecentSearches(prev => {
+          const filtered = prev.filter(s => s !== searchTerm);
+          return [searchTerm, ...filtered].slice(0, 10);
+        });
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [searchTerm]);
+
+  // Close export menu on click outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target)) {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // ============= HELPER FUNCTIONS =============
+  const toggleCard = (id) => {
+    setExpandedCards(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const toggleFavorite = (disease, category, prognosis) => {
+    const id = `${category}-${prognosis}-${disease.name}`;
+    setFavorites(prev => {
+      const exists = prev.find(f => f.id === id);
+      if (exists) {
+        return prev.filter(f => f.id !== id);
+      }
+      return [...prev, { disease, category, prognosis, id }];
+    });
+  };
+
+  const isFavorite = (disease, category, prognosis) => {
+    const id = `${category}-${prognosis}-${disease.name}`;
+    return favorites.some(f => f.id === id);
+  };
+
+  const clearRecentSearches = () => {
+    setRecentSearches([]);
+    localStorage.removeItem('hematpath-recent');
+  };
+
+  const toggleCompareSelection = (disease, category, prognosis) => {
+    const id = `${category}-${prognosis}-${disease.name}`;
+    setSelectedForCompare(prev => {
+      const exists = prev.find(s => s.id === id);
+      if (exists) {
+        return prev.filter(s => s.id !== id);
+      }
+      if (prev.length >= 4) {
+        alert('Maximum 4 diseases for comparison');
+        return prev;
+      }
+      return [...prev, { disease, category, prognosis, id }];
+    });
+  };
+
+  const isSelectedForCompare = (disease, category, prognosis) => {
+    const id = `${category}-${prognosis}-${disease.name}`;
+    return selectedForCompare.some(s => s.id === id);
+  };
+
+  // ============= FILTERED DATA =============
   const filteredDiseases = useMemo(() => {
     let filtered = {};
-    let totalResults = 0;
 
-    // Start with all diseases or favorites
     if (showFavorites) {
       favorites.forEach(fav => {
         if (!filtered[fav.category]) filtered[fav.category] = {};
         if (!filtered[fav.category][fav.prognosis]) filtered[fav.category][fav.prognosis] = [];
         filtered[fav.category][fav.prognosis].push(fav.disease);
-        totalResults++;
       });
-      setSearchResultsCount(totalResults);
       return filtered;
     }
 
@@ -1067,24 +691,20 @@ const HaematopathologyReference = () => {
     const categoriesToSearch = globalSearch ? Object.keys(diseases) : [activeTab];
 
     categoriesToSearch.forEach(category => {
+      if (!diseases[category]) return;
       filtered[category] = {};
+
       Object.keys(diseases[category]).forEach(subcategory => {
-        // Apply prognosis filter
+        // Prognosis filter
         if (prognosisFilter !== 'all') {
-          const prognosisMap = {
-            good: ['good', 'cytogenetics', 'cml', 'pv', 'all'],
-            intermediate: ['intermediate', 'mutations', 'etpmf', 'cnl'],
-            poor: ['poor', 'mastocytosis', 'lymphomas']
-          };
-          if (!prognosisMap[prognosisFilter]?.includes(subcategory)) {
-            return;
-          }
+          if (prognosisFilter === 'good' && !['good'].includes(subcategory)) return;
+          if (prognosisFilter === 'intermediate' && !['intermediate'].includes(subcategory)) return;
+          if (prognosisFilter === 'poor' && !['poor'].includes(subcategory)) return;
         }
 
         const items = diseases[category][subcategory].filter(disease => {
           if (!term) return true;
 
-          // Apply search filter
           switch (searchFilter) {
             case 'name':
               return disease.name.toLowerCase().includes(term);
@@ -1092,7 +712,7 @@ const HaematopathologyReference = () => {
               return disease.gene.toLowerCase().includes(term);
             case 'features':
               return disease.features.some(f => f.toLowerCase().includes(term));
-            default: // 'all'
+            default:
               return (
                 disease.name.toLowerCase().includes(term) ||
                 disease.gene.toLowerCase().includes(term) ||
@@ -1103,31 +723,39 @@ const HaematopathologyReference = () => {
 
         if (items.length > 0) {
           filtered[category][subcategory] = items;
-          totalResults += items.length;
         }
       });
     });
 
-    setSearchResultsCount(totalResults);
     return filtered;
-  }, [searchTerm, showFavorites, favorites, searchFilter, prognosisFilter, globalSearch, activeTab]);
+  }, [searchTerm, showFavorites, favorites, searchFilter, prognosisFilter, globalSearch, activeTab, diseases]);
 
-  // Highlight matching text in search results
+  // Count results
+  const searchResultsCount = useMemo(() => {
+    let count = 0;
+    Object.values(filteredDiseases).forEach(category => {
+      Object.values(category).forEach(subcategory => {
+        count += subcategory.length;
+      });
+    });
+    return count;
+  }, [filteredDiseases]);
+
+  // Highlight matches
   const highlightMatch = (text, term) => {
     if (!term || term.length < 2) return text;
-
-    const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-    const parts = text.split(regex);
-
-    return parts.map((part, i) =>
-      regex.test(part) ? (
-        <mark key={i} className="bg-yellow-300 px-0.5 rounded">{part}</mark>
-      ) : (
-        part
-      )
-    );
+    try {
+      const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+      const parts = text.split(regex);
+      return parts.map((part, i) =>
+        regex.test(part) ? <mark key={i} className="bg-yellow-300 px-0.5 rounded">{part}</mark> : part
+      );
+    } catch {
+      return text;
+    }
   };
 
+  // Prognosis colors
   const getPrognosisColor = (prognosis) => {
     const colors = {
       good: 'bg-green-100 border-green-400 text-green-900',
@@ -1138,91 +766,138 @@ const HaematopathologyReference = () => {
     return colors[prognosis] || colors.default;
   };
 
-  const renderDiseaseCard = (disease, index, prognosis = null, category = null) => {
-    const cardId = `${category || activeTab}-${prognosis}-${index}`;
-    const isExpanded = expandedCards[cardId];
-    const favorited = isFavorite(disease, category || activeTab, prognosis);
-    const selectedCompare = isSelectedForCompare(disease, category || activeTab, prognosis);
-    const currentCategory = category || activeTab;
-
-    return (
-      <div
-        key={cardId}
-        className={`border-2 rounded-lg p-4 mb-3 transition-all ${
-          prognosis ? getPrognosisColor(prognosis) : 'bg-gray-50 border-gray-300'
-        } ${selectedCompare ? 'ring-4 ring-blue-500 shadow-lg' : ''} hover:shadow-md`}
-      >
-        <div className="flex justify-between items-start">
-          <div
-            className="flex-1 cursor-pointer"
-            onClick={() => toggleCard(cardId)}
-          >
-            {/* Show category badge in global search */}
-            {globalSearch && searchTerm && (
-              <span className="inline-block text-xs font-bold uppercase tracking-wide bg-gray-200 text-gray-600 px-2 py-0.5 rounded mb-2">
-                {currentCategory}
-              </span>
-            )}
-            <h3 className="font-bold text-lg mb-1">
-              {highlightMatch(disease.name, searchTerm)}
-            </h3>
-            <p className="font-mono text-sm font-semibold">
-              {highlightMatch(disease.gene, searchTerm)}
-            </p>
-          </div>
-
-          <div className="flex gap-2 ml-3">
-            {/* Always show compare button but style differently in compare mode */}
-            <button
-              onClick={() => {
-                if (!compareMode) setCompareMode(true);
-                toggleCompareSelection(disease, currentCategory, prognosis);
-              }}
-              className={`p-2 rounded-lg transition-colors ${
-                selectedCompare
-                  ? 'bg-blue-600 text-white shadow-md'
-                  : compareMode
-                    ? 'bg-white hover:bg-blue-50 border-2 border-blue-300'
-                    : 'bg-white/70 hover:bg-white'
-              }`}
-              title={selectedCompare ? 'Remove from comparison' : 'Add to comparison'}
-            >
-              <GitCompare size={18} />
-            </button>
-
-            <button
-              onClick={() => toggleFavorite(disease, currentCategory, prognosis)}
-              className={`p-2 rounded-lg transition-colors ${
-                favorited
-                  ? 'bg-yellow-400 text-white'
-                  : 'bg-white hover:bg-gray-100'
-              }`}
-              title={favorited ? 'Remove from favorites' : 'Add to favorites'}
-            >
-              <Star size={18} fill={favorited ? 'white' : 'none'} />
-            </button>
-
-            <button onClick={() => toggleCard(cardId)} className="p-2 hover:bg-white/50 rounded-lg">
-              {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-            </button>
-          </div>
-        </div>
-
-        {isExpanded && (
-          <ul className="mt-3 space-y-1 text-sm">
-            {disease.features.map((feature, idx) => (
-              <li key={idx} className="flex items-start">
-                <span className="mr-2">•</span>
-                <span>{highlightMatch(feature, searchTerm)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    );
+  // Category stats
+  const getCategoryStats = (categoryId) => {
+    const categoryData = diseases[categoryId];
+    let total = 0;
+    Object.values(categoryData).forEach(subcategory => {
+      total += subcategory.length;
+    });
+    return total;
   };
 
-  // Find common and unique features for comparison
+  const totalDiseases = Object.keys(diseases).reduce((sum, cat) => sum + getCategoryStats(cat), 0);
+
+  // ============= EXPORT FUNCTIONS =============
+  const exportAsJSON = () => {
+    const exportData = {
+      version: '1.0',
+      exportDate: new Date().toISOString(),
+      exportedBy: 'Haematopathology Reference Tool',
+      favorites: favorites,
+      totalCount: favorites.length
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `hematpath-favorites-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setShowExportMenu(false);
+  };
+
+  const exportAsText = () => {
+    let textContent = `HAEMATOPATHOLOGY REFERENCE - FAVORITES LIST\n`;
+    textContent += `Exported: ${new Date().toLocaleString()}\n`;
+    textContent += `Total Items: ${favorites.length}\n`;
+    textContent += `${'='.repeat(70)}\n\n`;
+
+    const grouped = favorites.reduce((acc, fav) => {
+      if (!acc[fav.category]) acc[fav.category] = {};
+      if (!acc[fav.category][fav.prognosis]) acc[fav.category][fav.prognosis] = [];
+      acc[fav.category][fav.prognosis].push(fav);
+      return acc;
+    }, {});
+
+    Object.keys(grouped).forEach(category => {
+      textContent += `\n${category.toUpperCase()}\n${'-'.repeat(70)}\n`;
+      Object.keys(grouped[category]).forEach(prognosis => {
+        textContent += `\n  ${prognosis.toUpperCase()}\n`;
+        grouped[category][prognosis].forEach((fav, idx) => {
+          textContent += `\n  ${idx + 1}. ${fav.disease.name}\n`;
+          textContent += `     Gene: ${fav.disease.gene}\n`;
+          fav.disease.features.forEach(feature => {
+            textContent += `     - ${feature}\n`;
+          });
+        });
+      });
+    });
+
+    textContent += `\n${'='.repeat(70)}\n`;
+    textContent += `By Dr Abdul Mannan FRCPath FCPS | Blood🩸Doctor\n`;
+
+    const blob = new Blob([textContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `hematpath-favorites-${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setShowExportMenu(false);
+  };
+
+  const copyShareableText = () => {
+    let shareText = `📚 Haematopathology Reference - My Favorites (${favorites.length} items)\n\n`;
+
+    const grouped = favorites.reduce((acc, fav) => {
+      if (!acc[fav.category]) acc[fav.category] = [];
+      acc[fav.category].push(fav);
+      return acc;
+    }, {});
+
+    Object.keys(grouped).forEach(category => {
+      shareText += `${category.toUpperCase()}:\n`;
+      grouped[category].forEach(fav => {
+        shareText += `• ${fav.disease.name} (${fav.disease.gene})\n`;
+      });
+      shareText += `\n`;
+    });
+
+    shareText += `By Dr Abdul Mannan FRCPath FCPS | Blood🩸Doctor`;
+
+    navigator.clipboard.writeText(shareText).then(() => {
+      alert('Copied to clipboard!');
+      setShowExportMenu(false);
+    });
+  };
+
+  const importFromJSON = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const importData = JSON.parse(e.target.result);
+        if (!importData.favorites || !Array.isArray(importData.favorites)) {
+          alert('Invalid file format');
+          return;
+        }
+
+        const confirmImport = window.confirm(
+          `Import ${importData.favorites.length} favorites?\nThis will add to your existing ${favorites.length} favorites.`
+        );
+
+        if (confirmImport) {
+          const existingIds = new Set(favorites.map(f => f.id));
+          const newFavorites = importData.favorites.filter(f => !existingIds.has(f.id));
+          setFavorites(prev => [...prev, ...newFavorites]);
+          alert(`Imported ${newFavorites.length} new favorites!`);
+        }
+      } catch {
+        alert('Error reading file');
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  };
+
+  // ============= COMPARISON FUNCTIONS =============
   const getComparisonAnalysis = useCallback(() => {
     if (selectedForCompare.length < 2) return null;
 
@@ -1230,7 +905,6 @@ const HaematopathologyReference = () => {
       new Set(item.disease.features.map(f => f.toLowerCase()))
     );
 
-    // Find common features (present in all)
     const commonFeatures = [];
     if (allFeatures.length > 0) {
       allFeatures[0].forEach(feature => {
@@ -1243,7 +917,6 @@ const HaematopathologyReference = () => {
       });
     }
 
-    // Find unique features for each disease
     const uniqueFeatures = selectedForCompare.map((item, idx) => {
       return item.disease.features.filter(feature => {
         const lowerFeature = feature.toLowerCase();
@@ -1256,7 +929,6 @@ const HaematopathologyReference = () => {
     return { commonFeatures, uniqueFeatures };
   }, [selectedForCompare]);
 
-  // Export comparison as text
   const exportComparison = () => {
     if (selectedForCompare.length === 0) return;
 
@@ -1291,23 +963,103 @@ const HaematopathologyReference = () => {
     });
   };
 
+  // ============= RENDER FUNCTIONS =============
+  const renderDiseaseCard = (disease, index, prognosis, category) => {
+    const cardId = `${category}-${prognosis}-${index}`;
+    const isExpanded = expandedCards[cardId];
+    const favorited = isFavorite(disease, category, prognosis);
+    const selectedCompare = isSelectedForCompare(disease, category, prognosis);
+
+    return (
+      <div
+        key={cardId}
+        className={`border-2 rounded-lg p-4 mb-3 transition-all hover:shadow-md ${
+          getPrognosisColor(prognosis)
+        } ${selectedCompare ? 'ring-4 ring-blue-500 shadow-lg' : ''}`}
+      >
+        <div className="flex justify-between items-start">
+          <div className="flex-1 cursor-pointer" onClick={() => toggleCard(cardId)}>
+            {globalSearch && searchTerm && (
+              <span className="inline-block text-xs font-bold uppercase tracking-wide bg-gray-200 text-gray-600 px-2 py-0.5 rounded mb-2">
+                {category}
+              </span>
+            )}
+            <h3 className="font-bold text-lg mb-1">
+              {highlightMatch(disease.name, searchTerm)}
+            </h3>
+            <p className="font-mono text-sm font-semibold">
+              {highlightMatch(disease.gene, searchTerm)}
+            </p>
+          </div>
+
+          <div className="flex gap-2 ml-3">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!compareMode) setCompareMode(true);
+                toggleCompareSelection(disease, category, prognosis);
+              }}
+              className={`p-2 rounded-lg transition-colors ${
+                selectedCompare
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'bg-white/70 hover:bg-white border border-gray-300'
+              }`}
+              title={selectedCompare ? 'Remove from comparison' : 'Add to comparison'}
+            >
+              <GitCompare size={18} />
+            </button>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleFavorite(disease, category, prognosis);
+              }}
+              className={`p-2 rounded-lg transition-colors ${
+                favorited ? 'bg-yellow-400 text-white' : 'bg-white/70 hover:bg-white border border-gray-300'
+              }`}
+              title={favorited ? 'Remove from favorites' : 'Add to favorites'}
+            >
+              <Star size={18} fill={favorited ? 'white' : 'none'} />
+            </button>
+
+            <button
+              onClick={() => toggleCard(cardId)}
+              className="p-2 hover:bg-white/50 rounded-lg"
+            >
+              {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
+          </div>
+        </div>
+
+        {isExpanded && (
+          <ul className="mt-3 space-y-1 text-sm border-t pt-3">
+            {disease.features.map((feature, idx) => (
+              <li key={idx} className="flex items-start">
+                <span className="mr-2 text-gray-500">•</span>
+                <span>{highlightMatch(feature, searchTerm)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  };
+
   const renderComparisonView = () => {
     if (selectedForCompare.length === 0) {
       return (
         <div className="text-center py-12 text-gray-500">
           <GitCompare size={64} className="mx-auto mb-4 text-gray-300" />
           <p className="text-xl mb-2">No diseases selected for comparison</p>
-          <p className="mb-6">Click the compare icon <GitCompare size={16} className="inline" /> on any disease card to add it (max 4)</p>
+          <p className="mb-6">Click the <GitCompare size={16} className="inline" /> button on any disease card to add it (max 4)</p>
 
-          {/* Quick compare suggestions */}
           <div className="mt-8 max-w-2xl mx-auto">
-            <p className="text-sm font-semibold mb-3 text-gray-600">Popular Comparisons:</p>
+            <p className="text-sm font-semibold mb-3 text-gray-600">Quick Comparisons:</p>
             <div className="flex flex-wrap gap-2 justify-center">
               <button
                 onClick={() => {
-                  // Pre-select CBF AMLs for comparison
-                  const cbf1 = diseases.aml.good[0]; // t(8;21)
-                  const cbf2 = diseases.aml.good[1]; // inv(16)
+                  const cbf1 = diseases.aml.good[0];
+                  const cbf2 = diseases.aml.good[1];
                   setSelectedForCompare([
                     { disease: cbf1, category: 'aml', prognosis: 'good', id: `aml-good-${cbf1.name}` },
                     { disease: cbf2, category: 'aml', prognosis: 'good', id: `aml-good-${cbf2.name}` }
@@ -1315,7 +1067,7 @@ const HaematopathologyReference = () => {
                 }}
                 className="px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-sm transition-colors"
               >
-                CBF AMLs (t(8;21) vs inv(16))
+                CBF AMLs: t(8;21) vs inv(16)
               </button>
               <button
                 onClick={() => {
@@ -1323,29 +1075,29 @@ const HaematopathologyReference = () => {
                   const npm1 = diseases.aml.good.find(d => d.name.includes('NPM1'));
                   if (flt3 && npm1) {
                     setSelectedForCompare([
-                      { disease: flt3, category: 'aml', prognosis: 'poor', id: `aml-poor-${flt3.name}` },
-                      { disease: npm1, category: 'aml', prognosis: 'good', id: `aml-good-${npm1.name}` }
+                      { disease: npm1, category: 'aml', prognosis: 'good', id: `aml-good-${npm1.name}` },
+                      { disease: flt3, category: 'aml', prognosis: 'poor', id: `aml-poor-${flt3.name}` }
                     ]);
                   }
                 }}
                 className="px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-sm transition-colors"
               >
-                FLT3-ITD vs NPM1
+                NPM1 vs FLT3-ITD
               </button>
               <button
                 onClick={() => {
-                  const cll_good = diseases.bcell.lymphomas.find(d => d.name.includes('CLL') && d.name.includes('Good'));
-                  const cll_poor = diseases.bcell.lymphomas.find(d => d.name.includes('CLL') && d.name.includes('Poor'));
-                  if (cll_good && cll_poor) {
+                  const cllGood = diseases.bcell.lymphomas.find(d => d.name.includes('CLL') && d.name.includes('Good'));
+                  const cllPoor = diseases.bcell.lymphomas.find(d => d.name.includes('CLL') && d.name.includes('Poor'));
+                  if (cllGood && cllPoor) {
                     setSelectedForCompare([
-                      { disease: cll_good, category: 'bcell', prognosis: 'lymphomas', id: `bcell-lymphomas-${cll_good.name}` },
-                      { disease: cll_poor, category: 'bcell', prognosis: 'lymphomas', id: `bcell-lymphomas-${cll_poor.name}` }
+                      { disease: cllGood, category: 'bcell', prognosis: 'lymphomas', id: `bcell-lymphomas-${cllGood.name}` },
+                      { disease: cllPoor, category: 'bcell', prognosis: 'lymphomas', id: `bcell-lymphomas-${cllPoor.name}` }
                     ]);
                   }
                 }}
                 className="px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-sm transition-colors"
               >
-                CLL Good vs Poor Prognosis
+                CLL: Good vs Poor Prognosis
               </button>
             </div>
           </div>
@@ -1357,8 +1109,8 @@ const HaematopathologyReference = () => {
 
     return (
       <div className="space-y-6">
-        {/* Comparison toolbar */}
-        <div className="flex justify-between items-center bg-blue-50 p-4 rounded-lg border border-blue-200">
+        {/* Toolbar */}
+        <div className="flex flex-wrap justify-between items-center bg-blue-50 p-4 rounded-lg border border-blue-200 gap-4">
           <div className="flex items-center gap-4">
             <span className="font-semibold text-blue-900">
               Comparing {selectedForCompare.length} disease{selectedForCompare.length !== 1 ? 's' : ''}
@@ -1386,7 +1138,7 @@ const HaematopathologyReference = () => {
           </div>
         </div>
 
-        {/* Common features section */}
+        {/* Common features */}
         {analysis && analysis.commonFeatures.length > 0 && (
           <div className="bg-purple-50 border-2 border-purple-200 rounded-lg p-4">
             <h3 className="font-bold text-purple-900 mb-2 flex items-center gap-2">
@@ -1396,7 +1148,7 @@ const HaematopathologyReference = () => {
             <ul className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {analysis.commonFeatures.map((feature, idx) => (
                 <li key={idx} className="flex items-start text-sm text-purple-800">
-                  <CheckCircle2 size={14} className="mr-2 mt-0.5 text-purple-500" />
+                  <CheckCircle2 size={14} className="mr-2 mt-0.5 text-purple-500 flex-shrink-0" />
                   {feature}
                 </li>
               ))}
@@ -1413,17 +1165,16 @@ const HaematopathologyReference = () => {
         }`}>
           {selectedForCompare.map((item, idx) => (
             <div key={item.id} className={`border-2 rounded-lg p-5 ${getPrognosisColor(item.prognosis)} relative`}>
-              {/* Number badge */}
               <div className="absolute -top-3 -left-3 w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold shadow-lg">
                 {idx + 1}
               </div>
 
               <div className="flex justify-between items-start mb-4">
-                <div>
-                  <span className="inline-block text-xs font-bold uppercase tracking-wide opacity-70 bg-white/50 px-2 py-1 rounded">
+                <div className="flex gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wide opacity-70 bg-white/50 px-2 py-1 rounded">
                     {item.category.toUpperCase()}
                   </span>
-                  <span className={`inline-block ml-2 text-xs font-bold uppercase tracking-wide px-2 py-1 rounded ${
+                  <span className={`text-xs font-bold uppercase tracking-wide px-2 py-1 rounded ${
                     item.prognosis === 'good' ? 'bg-green-500 text-white' :
                     item.prognosis === 'poor' ? 'bg-red-500 text-white' :
                     item.prognosis === 'intermediate' ? 'bg-yellow-500 text-white' :
@@ -1487,179 +1238,80 @@ const HaematopathologyReference = () => {
         <div className="text-center py-12 text-gray-500">
           {showFavorites ? (
             <>
-              <Heart size={64} className="mx-auto mb-4 text-gray-300" />
+              <Star size={64} className="mx-auto mb-4 text-gray-300" />
               <p className="text-xl mb-2">No favorites in this category</p>
               <p>Star diseases to add them to your favorites</p>
             </>
           ) : (
             <>
               <Search size={64} className="mx-auto mb-4 text-gray-300" />
-              <p className="text-xl mb-2">No results found for "{searchTerm}"</p>
-              <p>Try different search terms</p>
+              <p className="text-xl mb-2">No results found{searchTerm ? ` for "${searchTerm}"` : ''}</p>
+              <p>Try different search terms or filters</p>
             </>
           )}
         </div>
       );
     }
 
+    // Render based on category
+    const renderSection = (title, data, prognosis, colorClass) => {
+      if (!data || data.length === 0) return null;
+      return (
+        <div className="mb-6">
+          <h2 className={`text-xl font-bold mb-3 ${colorClass} border-b-2 pb-2`}>
+            {title}
+          </h2>
+          {data.map((disease, idx) => renderDiseaseCard(disease, idx, prognosis, activeTab))}
+        </div>
+      );
+    };
+
     switch(activeTab) {
       case 'aml':
         return (
           <>
-            {currentData.good && (
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-3 text-green-700 border-b-2 border-green-300 pb-2">
-                  Good Prognosis
-                </h2>
-                {currentData.good.map((disease, idx) => renderDiseaseCard(disease, idx, 'good', 'aml'))}
-              </div>
-            )}
-
-            {currentData.intermediate && (
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-3 text-yellow-700 border-b-2 border-yellow-300 pb-2">
-                  Intermediate Prognosis
-                </h2>
-                {currentData.intermediate.map((disease, idx) => renderDiseaseCard(disease, idx, 'intermediate', 'aml'))}
-              </div>
-            )}
-
-            {currentData.poor && (
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-3 text-red-700 border-b-2 border-red-300 pb-2">
-                  Poor Prognosis
-                </h2>
-                {currentData.poor.map((disease, idx) => renderDiseaseCard(disease, idx, 'poor', 'aml'))}
-              </div>
-            )}
+            {renderSection('Good Prognosis', currentData.good, 'good', 'text-green-700 border-green-300')}
+            {renderSection('Intermediate Prognosis', currentData.intermediate, 'intermediate', 'text-yellow-700 border-yellow-300')}
+            {renderSection('Poor Prognosis', currentData.poor, 'poor', 'text-red-700 border-red-300')}
           </>
         );
       case 'mds':
         return (
           <>
-            {currentData.cytogenetics && (
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-3 text-blue-700 border-b-2 border-blue-300 pb-2">
-                  Cytogenetics
-                </h2>
-                {currentData.cytogenetics.map((disease, idx) => renderDiseaseCard(disease, idx, 'cytogenetics', 'mds'))}
-              </div>
-            )}
-
-            {currentData.mutations && (
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-3 text-purple-700 border-b-2 border-purple-300 pb-2">
-                  Mutations
-                </h2>
-                {currentData.mutations.map((disease, idx) => renderDiseaseCard(disease, idx, 'mutations', 'mds'))}
-              </div>
-            )}
+            {renderSection('Cytogenetics', currentData.cytogenetics, 'cytogenetics', 'text-blue-700 border-blue-300')}
+            {renderSection('Mutations', currentData.mutations, 'mutations', 'text-purple-700 border-purple-300')}
           </>
         );
       case 'mpn':
         return (
           <>
-            {currentData.cml && (
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-3 text-blue-700 border-b-2 border-blue-300 pb-2">
-                  Chronic Myelogenous Leukemia
-                </h2>
-                {currentData.cml.map((disease, idx) => renderDiseaseCard(disease, idx, 'cml', 'mpn'))}
-              </div>
-            )}
-
-            {currentData.pv && (
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-3 text-red-700 border-b-2 border-red-300 pb-2">
-                  Polycythemia Vera
-                </h2>
-                {currentData.pv.map((disease, idx) => renderDiseaseCard(disease, idx, 'pv', 'mpn'))}
-              </div>
-            )}
-
-            {currentData.etpmf && (
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-3 text-orange-700 border-b-2 border-orange-300 pb-2">
-                  ET / Primary Myelofibrosis
-                </h2>
-                {currentData.etpmf.map((disease, idx) => renderDiseaseCard(disease, idx, 'etpmf', 'mpn'))}
-              </div>
-            )}
-
-            {currentData.cnl && (
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-3 text-green-700 border-b-2 border-green-300 pb-2">
-                  Chronic Neutrophilic Leukemia
-                </h2>
-                {currentData.cnl.map((disease, idx) => renderDiseaseCard(disease, idx, 'cnl', 'mpn'))}
-              </div>
-            )}
-
-            {currentData.mastocytosis && (
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-3 text-pink-700 border-b-2 border-pink-300 pb-2">
-                  Mastocytosis
-                </h2>
-                {currentData.mastocytosis.map((disease, idx) => renderDiseaseCard(disease, idx, 'mastocytosis', 'mpn'))}
-              </div>
-            )}
+            {renderSection('CML', currentData.cml, 'cml', 'text-blue-700 border-blue-300')}
+            {renderSection('Polycythemia Vera', currentData.pv, 'pv', 'text-red-700 border-red-300')}
+            {renderSection('ET / Primary Myelofibrosis', currentData.etpmf, 'etpmf', 'text-orange-700 border-orange-300')}
+            {renderSection('Chronic Neutrophilic Leukemia', currentData.cnl, 'cnl', 'text-green-700 border-green-300')}
+            {renderSection('Mastocytosis', currentData.mastocytosis, 'mastocytosis', 'text-pink-700 border-pink-300')}
           </>
         );
       case 'bcell':
         return (
           <>
-            {currentData.all && (
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-3 text-blue-700 border-b-2 border-blue-300 pb-2">
-                  B-Lymphoblastic Leukemia
-                </h2>
-                {currentData.all.map((disease, idx) => renderDiseaseCard(disease, idx, 'all', 'bcell'))}
-              </div>
-            )}
-
-            {currentData.lymphomas && (
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-3 text-purple-700 border-b-2 border-purple-300 pb-2">
-                  B-cell Lymphomas
-                </h2>
-                {currentData.lymphomas.map((disease, idx) => renderDiseaseCard(disease, idx, 'lymphomas', 'bcell'))}
-              </div>
-            )}
+            {renderSection('B-Lymphoblastic Leukemia', currentData.all, 'all', 'text-blue-700 border-blue-300')}
+            {renderSection('B-cell Lymphomas', currentData.lymphomas, 'lymphomas', 'text-purple-700 border-purple-300')}
           </>
         );
       case 'tcell':
         return (
           <>
-            {currentData.all && (
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-3 text-purple-700 border-b-2 border-purple-300 pb-2">
-                  T-Lymphoblastic Leukemia
-                </h2>
-                {currentData.all.map((disease, idx) => renderDiseaseCard(disease, idx, 'all', 'tcell'))}
-              </div>
-            )}
-
-            {currentData.lymphomas && (
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-3 text-indigo-700 border-b-2 border-indigo-300 pb-2">
-                  T-cell Lymphomas
-                </h2>
-                {currentData.lymphomas.map((disease, idx) => renderDiseaseCard(disease, idx, 'lymphomas', 'tcell'))}
-              </div>
-            )}
+            {renderSection('T-Lymphoblastic Leukemia', currentData.all, 'all', 'text-purple-700 border-purple-300')}
+            {renderSection('T-cell Lymphomas', currentData.lymphomas, 'lymphomas', 'text-indigo-700 border-indigo-300')}
           </>
         );
       case 'other':
         return (
           <>
-            {Object.keys(currentData).map(subcategory => (
-              <div key={subcategory} className="mb-6">
-                <h2 className="text-xl font-bold mb-3 text-gray-700 border-b-2 border-gray-300 pb-2 capitalize">
-                  {subcategory.toUpperCase()}
-                </h2>
-                {currentData[subcategory]?.map((disease, idx) => renderDiseaseCard(disease, idx, subcategory, 'other'))}
-              </div>
-            ))}
+            {Object.keys(currentData).map(subcategory =>
+              renderSection(subcategory.toUpperCase(), currentData[subcategory], subcategory, 'text-gray-700 border-gray-300')
+            )}
           </>
         );
       default:
@@ -1667,18 +1319,7 @@ const HaematopathologyReference = () => {
     }
   };
 
-  // Calculate stats for each category
-  const getCategoryStats = (categoryId) => {
-    const categoryData = diseases[categoryId];
-    let total = 0;
-    Object.values(categoryData).forEach(subcategory => {
-      total += subcategory.length;
-    });
-    return total;
-  };
-
-  const totalDiseases = Object.keys(diseases).reduce((sum, cat) => sum + getCategoryStats(cat), 0);
-
+  // ============= MAIN RENDER =============
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -1701,7 +1342,6 @@ const HaematopathologyReference = () => {
               <button
                 onClick={() => setShowInfo(!showInfo)}
                 className="px-4 py-2 rounded-lg bg-blue-500 hover:bg-blue-400 flex items-center gap-2 transition-colors"
-                title="About this tool"
               >
                 <Info size={20} />
                 About
@@ -1712,11 +1352,8 @@ const HaematopathologyReference = () => {
                   onClick={() => setShowExportMenu(!showExportMenu)}
                   disabled={favorites.length === 0}
                   className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-                    favorites.length === 0
-                      ? 'bg-gray-400 cursor-not-allowed'
-                      : 'bg-green-500 hover:bg-green-400'
+                    favorites.length === 0 ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-400'
                   }`}
-                  title={favorites.length === 0 ? 'No favorites to export' : 'Export favorites'}
                 >
                   <Download size={20} />
                   Export
@@ -1725,56 +1362,29 @@ const HaematopathologyReference = () => {
                 {showExportMenu && (
                   <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border-2 border-gray-200 z-30">
                     <div className="p-2">
-                      <button
-                        onClick={exportAsJSON}
-                        className="w-full text-left px-4 py-3 hover:bg-gray-100 rounded flex items-center gap-3 text-gray-700"
-                      >
+                      <button onClick={exportAsJSON} className="w-full text-left px-4 py-3 hover:bg-gray-100 rounded flex items-center gap-3 text-gray-700">
                         <Download size={18} />
                         <div>
                           <div className="font-semibold">Export as JSON</div>
                           <div className="text-xs text-gray-500">Re-importable format</div>
                         </div>
                       </button>
-
-                      <button
-                        onClick={exportAsText}
-                        className="w-full text-left px-4 py-3 hover:bg-gray-100 rounded flex items-center gap-3 text-gray-700"
-                      >
+                      <button onClick={exportAsText} className="w-full text-left px-4 py-3 hover:bg-gray-100 rounded flex items-center gap-3 text-gray-700">
                         <FileText size={18} />
                         <div>
                           <div className="font-semibold">Export as Text</div>
                           <div className="text-xs text-gray-500">Plain text format</div>
                         </div>
                       </button>
-
-                      <button
-                        onClick={exportAsPDF}
-                        className="w-full text-left px-4 py-3 hover:bg-gray-100 rounded flex items-center gap-3 text-gray-700"
-                      >
-                        <Printer size={18} />
-                        <div>
-                          <div className="font-semibold">Print/PDF</div>
-                          <div className="text-xs text-gray-500">Formatted for printing</div>
-                        </div>
-                      </button>
-
-                      <button
-                        onClick={copyShareableText}
-                        className="w-full text-left px-4 py-3 hover:bg-gray-100 rounded flex items-center gap-3 text-gray-700"
-                      >
+                      <button onClick={copyShareableText} className="w-full text-left px-4 py-3 hover:bg-gray-100 rounded flex items-center gap-3 text-gray-700">
                         <Share2 size={18} />
                         <div>
                           <div className="font-semibold">Copy to Clipboard</div>
                           <div className="text-xs text-gray-500">For WhatsApp/Email</div>
                         </div>
                       </button>
-
                       <div className="border-t my-2"></div>
-
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="w-full text-left px-4 py-3 hover:bg-gray-100 rounded flex items-center gap-3 text-gray-700"
-                      >
+                      <button onClick={() => fileInputRef.current?.click()} className="w-full text-left px-4 py-3 hover:bg-gray-100 rounded flex items-center gap-3 text-gray-700">
                         <Upload size={18} />
                         <div>
                           <div className="font-semibold">Import JSON</div>
@@ -1785,13 +1395,7 @@ const HaematopathologyReference = () => {
                   </div>
                 )}
 
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".json"
-                  onChange={importFromJSON}
-                  className="hidden"
-                />
+                <input ref={fileInputRef} type="file" accept=".json" onChange={importFromJSON} className="hidden" />
               </div>
 
               <button
@@ -1800,9 +1404,7 @@ const HaematopathologyReference = () => {
                   if (compareMode) setSelectedForCompare([]);
                 }}
                 className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-                  compareMode
-                    ? 'bg-white text-blue-600'
-                    : 'bg-blue-500 hover:bg-blue-400'
+                  compareMode ? 'bg-white text-blue-600' : 'bg-blue-500 hover:bg-blue-400'
                 }`}
               >
                 <GitCompare size={20} />
@@ -1847,37 +1449,31 @@ const HaematopathologyReference = () => {
             </div>
             <p className="mt-4 text-sm text-blue-800">
               This reference tool provides molecular and cytogenetic information for haematological malignancies
-              based on the Association for Molecular Pathology (AMP) guidelines. Use the search, favorites,
-              and compare features to quickly access the information you need for clinical decision-making.
+              based on the Association for Molecular Pathology (AMP) guidelines.
             </p>
           </div>
         </div>
       )}
 
-      {/* Enhanced Search Bar */}
+      {/* Search Bar */}
       <div className="bg-white border-b shadow-sm p-4">
         <div className="max-w-7xl mx-auto space-y-3">
-          {/* Main search input */}
           <div className="relative">
             <Search className="absolute left-3 top-3 text-gray-400" size={20} />
             <input
               ref={searchInputRef}
               type="text"
               placeholder="Search diseases, genes, or features..."
-              className="w-full pl-10 pr-44 py-2.5 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-lg"
+              className="w-full pl-10 pr-40 py-2.5 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-lg"
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
                 setShowFavorites(false);
-                setShowSearchSuggestions(true);
               }}
-              onFocus={() => setShowSearchSuggestions(true)}
-              onKeyDown={handleSearchKeyDown}
             />
 
-            {/* Search results count */}
             {searchTerm && (
-              <span className="absolute right-36 top-3 text-sm text-gray-500">
+              <span className="absolute right-32 top-3 text-sm text-gray-500">
                 {searchResultsCount} result{searchResultsCount !== 1 ? 's' : ''}
               </span>
             )}
@@ -1885,82 +1481,40 @@ const HaematopathologyReference = () => {
             <div className="absolute right-2 top-1.5 flex gap-2">
               {searchTerm && (
                 <button
-                  onClick={() => {
-                    setSearchTerm('');
-                    setShowSearchSuggestions(false);
-                    searchInputRef.current?.focus();
-                  }}
+                  onClick={() => setSearchTerm('')}
                   className="p-1.5 hover:bg-gray-100 rounded-lg"
-                  title="Clear search"
                 >
                   <X size={18} className="text-gray-400" />
                 </button>
               )}
-
               <button
                 onClick={() => {
                   setShowFavorites(!showFavorites);
                   if (!showFavorites) setSearchTerm('');
                 }}
                 className={`px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors ${
-                  showFavorites
-                    ? 'bg-yellow-400 text-white'
-                    : 'bg-gray-200 hover:bg-gray-300'
+                  showFavorites ? 'bg-yellow-400 text-white' : 'bg-gray-200 hover:bg-gray-300'
                 }`}
-                title="Show favorites"
               >
                 <Star size={16} fill={showFavorites ? 'white' : 'none'} />
                 <span className="text-sm font-medium">{favorites.length}</span>
               </button>
-
               <button
                 onClick={() => setShowRecent(!showRecent)}
                 className={`px-3 py-1.5 rounded-lg transition-colors ${
                   showRecent ? 'bg-gray-400 text-white' : 'bg-gray-200 hover:bg-gray-300'
                 }`}
-                title="Recent searches"
               >
                 <Clock size={16} />
               </button>
             </div>
 
-            {/* Search Suggestions Dropdown */}
-            {showSearchSuggestions && searchSuggestions.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-white border-2 border-blue-200 rounded-lg shadow-xl z-30 overflow-hidden">
-                {searchSuggestions.map((suggestion, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => {
-                      setSearchTerm(suggestion.text);
-                      setShowSearchSuggestions(false);
-                    }}
-                    className={`w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors ${
-                      highlightedSuggestion === idx ? 'bg-blue-50' : 'hover:bg-gray-50'
-                    }`}
-                  >
-                    <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded ${
-                      suggestion.type === 'gene' ? 'bg-purple-100 text-purple-700' :
-                      suggestion.type === 'name' ? 'bg-blue-100 text-blue-700' :
-                      'bg-gray-100 text-gray-700'
-                    }`}>
-                      {suggestion.type}
-                    </span>
-                    <span className="flex-1 truncate">{suggestion.text}</span>
-                    <span className="text-xs text-gray-400 uppercase">{suggestion.category}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Recent Searches Dropdown */}
+            {/* Recent Searches */}
             {showRecent && recentSearches.length > 0 && (
               <div className="absolute top-full left-0 mt-1 bg-white border-2 border-gray-300 rounded-lg shadow-lg p-3 z-30 w-80">
                 <div className="flex justify-between items-center mb-2">
                   <h3 className="font-semibold text-sm">Recent Searches</h3>
-                  <button
-                    onClick={clearRecentSearches}
-                    className="text-xs text-red-600 hover:text-red-800"
-                  >
+                  <button onClick={clearRecentSearches} className="text-xs text-red-600 hover:text-red-800">
                     Clear all
                   </button>
                 </div>
@@ -1984,9 +1538,8 @@ const HaematopathologyReference = () => {
             )}
           </div>
 
-          {/* Search filters and quick searches */}
+          {/* Filters */}
           <div className="flex flex-wrap items-center gap-3">
-            {/* Search scope filter */}
             <div className="flex items-center gap-2">
               <Filter size={16} className="text-gray-400" />
               <select
@@ -2001,52 +1554,37 @@ const HaematopathologyReference = () => {
               </select>
             </div>
 
-            {/* Prognosis filter */}
-            <div className="flex items-center gap-2">
-              <ArrowUpDown size={16} className="text-gray-400" />
-              <select
-                value={prognosisFilter}
-                onChange={(e) => setPrognosisFilter(e.target.value)}
-                className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 focus:border-blue-500 focus:outline-none"
-              >
-                <option value="all">All Prognosis</option>
-                <option value="good">Good Prognosis</option>
-                <option value="intermediate">Intermediate</option>
-                <option value="poor">Poor Prognosis</option>
-              </select>
-            </div>
+            <select
+              value={prognosisFilter}
+              onChange={(e) => setPrognosisFilter(e.target.value)}
+              className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 focus:border-blue-500 focus:outline-none"
+            >
+              <option value="all">All Prognosis</option>
+              <option value="good">Good Prognosis</option>
+              <option value="intermediate">Intermediate</option>
+              <option value="poor">Poor Prognosis</option>
+            </select>
 
-            {/* Global search toggle */}
             <button
               onClick={() => setGlobalSearch(!globalSearch)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                globalSearch
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                globalSearch ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
               }`}
-              title="Search across all categories"
             >
               <Zap size={14} />
-              {globalSearch ? 'All Categories' : 'Current Tab Only'}
+              {globalSearch ? 'All Categories' : 'Current Tab'}
             </button>
 
-            {/* Divider */}
             <div className="h-6 w-px bg-gray-300 mx-1"></div>
 
-            {/* Quick search buttons */}
             <div className="flex items-center gap-1 flex-wrap">
               <span className="text-xs text-gray-500 mr-1">Quick:</span>
               {quickSearchTerms.map((item, idx) => (
                 <button
                   key={idx}
                   onClick={() => {
-                    if (item.term) {
-                      setSearchTerm(item.term);
-                      setShowFavorites(false);
-                    }
-                    if (item.filter) {
-                      item.filter();
-                    }
+                    setSearchTerm(item.term);
+                    setShowFavorites(false);
                   }}
                   className="px-2 py-1 text-xs bg-gray-100 hover:bg-blue-100 hover:text-blue-700 rounded transition-colors"
                 >
@@ -2055,7 +1593,6 @@ const HaematopathologyReference = () => {
               ))}
             </div>
 
-            {/* Clear filters */}
             {(searchFilter !== 'all' || prognosisFilter !== 'all' || globalSearch) && (
               <button
                 onClick={() => {
@@ -2086,7 +1623,6 @@ const HaematopathologyReference = () => {
                       ? 'border-b-4 border-blue-600 text-blue-600'
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
-                  title={cat.description}
                 >
                   <span className="mr-2">{cat.icon}</span>
                   {cat.label}
@@ -2102,22 +1638,6 @@ const HaematopathologyReference = () => {
 
       {/* Content */}
       <div className="max-w-7xl mx-auto p-6">
-        {compareMode && selectedForCompare.length > 0 && (
-          <div className="mb-6 p-4 bg-blue-50 border-2 border-blue-300 rounded-lg">
-            <div className="flex justify-between items-center">
-              <p className="text-blue-900 font-medium">
-                Comparing {selectedForCompare.length} disease{selectedForCompare.length !== 1 ? 's' : ''}
-              </p>
-              <button
-                onClick={() => setSelectedForCompare([])}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-              >
-                Clear all
-              </button>
-            </div>
-          </div>
-        )}
-
         {renderContent()}
       </div>
 
