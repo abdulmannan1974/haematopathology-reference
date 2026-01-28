@@ -1349,7 +1349,8 @@ const HaematopathologyReference = () => {
               <div>
                 <h1 className="text-3xl font-bold mb-1">Haematopathology Reference</h1>
                 <p className="text-blue-100">Interactive Molecular & Cytogenetic Guide</p>
-                <p className="text-xs text-blue-200 mt-1">Based on AMP Guidelines | Revised July 2025</p>
+                <p className="text-xs text-blue-200 mt-1">By Dr Abdul Mannan FRCPath FCPS | Blood🩸Doctor</p>
+                <p className="text-xs text-blue-200/70">Based on AMP Guidelines | Revised July 2025</p>
               </div>
             </div>
 
@@ -1651,9 +1652,17 @@ const HaematopathologyReference = () => {
           <p className="text-xs mt-2 text-gray-500">
             {favorites.length} favorites saved • {recentSearches.length} recent searches • {totalDiseases} total entities
           </p>
-          <p className="text-xs mt-4 text-gray-500">
-            Created by Dr Abdul Mannan (Blood Doctor) • Open Source
-          </p>
+          <div className="mt-6 pt-4 border-t border-gray-700">
+            <p className="text-sm font-semibold text-white">
+              By Dr Abdul Mannan FRCPath FCPS | Blood🩸Doctor
+            </p>
+            <a
+              href="mailto:blooddoctor.co@gmail.com"
+              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              blooddoctor.co@gmail.com
+            </a>
+          </div>
         </div>
       </div>
     </div>
