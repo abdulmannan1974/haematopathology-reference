@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, ChevronDown, ChevronUp, Star, Clock, GitCompare, X, Heart, Download, Upload, Share2, FileText, Printer, Info, BookOpen, Microscope } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { Search, ChevronDown, ChevronUp, Star, Clock, GitCompare, X, Heart, Download, Upload, Share2, FileText, Printer, Info, BookOpen, Microscope, Filter, ArrowUpDown, Zap, Target, Layers, CheckCircle2 } from 'lucide-react';
 
 const HaematopathologyReference = () => {
   const [activeTab, setActiveTab] = useState('aml');
@@ -13,8 +13,15 @@ const HaematopathologyReference = () => {
   const [showRecent, setShowRecent] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  const [searchFilter, setSearchFilter] = useState('all'); // 'all', 'name', 'gene', 'features'
+  const [prognosisFilter, setPrognosisFilter] = useState('all'); // 'all', 'good', 'intermediate', 'poor'
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
+  const [highlightedSuggestion, setHighlightedSuggestion] = useState(-1);
+  const [globalSearch, setGlobalSearch] = useState(false); // Search across all categories
+  const [searchResultsCount, setSearchResultsCount] = useState(0);
   const fileInputRef = useRef(null);
   const exportMenuRef = useRef(null);
+  const searchInputRef = useRef(null);
 
   // Load favorites and recent searches from localStorage
   useEffect(() => {
@@ -126,8 +133,8 @@ const HaematopathologyReference = () => {
       if (exists) {
         return prev.filter(s => s.id !== item.id);
       } else {
-        if (prev.length >= 3) {
-          alert('Maximum 3 diseases for comparison');
+        if (prev.length >= 4) {
+          alert('Maximum 4 diseases for comparison');
           return prev;
         }
         return [...prev, item];
@@ -139,6 +146,75 @@ const HaematopathologyReference = () => {
     const id = `${category}-${prognosis}-${disease.name}`;
     return selectedForCompare.some(s => s.id === id);
   };
+
+  // Generate search suggestions based on all diseases
+  const searchSuggestions = useMemo(() => {
+    if (!searchTerm || searchTerm.length < 2) return [];
+
+    const term = searchTerm.toLowerCase();
+    const suggestions = new Set();
+
+    Object.keys(diseases).forEach(category => {
+      Object.keys(diseases[category]).forEach(subcategory => {
+        diseases[category][subcategory].forEach(disease => {
+          // Add disease names
+          if (disease.name.toLowerCase().includes(term)) {
+            suggestions.add({ type: 'name', text: disease.name, category });
+          }
+          // Add genes
+          if (disease.gene.toLowerCase().includes(term)) {
+            suggestions.add({ type: 'gene', text: disease.gene, category });
+          }
+          // Add features
+          disease.features.forEach(feature => {
+            if (feature.toLowerCase().includes(term) && feature.length < 50) {
+              suggestions.add({ type: 'feature', text: feature, category });
+            }
+          });
+        });
+      });
+    });
+
+    return Array.from(suggestions).slice(0, 8);
+  }, [searchTerm]);
+
+  // Handle keyboard navigation in search suggestions
+  const handleSearchKeyDown = (e) => {
+    if (!showSearchSuggestions || searchSuggestions.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedSuggestion(prev =>
+        prev < searchSuggestions.length - 1 ? prev + 1 : 0
+      );
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedSuggestion(prev =>
+        prev > 0 ? prev - 1 : searchSuggestions.length - 1
+      );
+    } else if (e.key === 'Enter' && highlightedSuggestion >= 0) {
+      e.preventDefault();
+      const suggestion = searchSuggestions[highlightedSuggestion];
+      setSearchTerm(suggestion.text);
+      setShowSearchSuggestions(false);
+      setHighlightedSuggestion(-1);
+    } else if (e.key === 'Escape') {
+      setShowSearchSuggestions(false);
+      setHighlightedSuggestion(-1);
+    }
+  };
+
+  // Quick search presets
+  const quickSearchTerms = [
+    { label: 'Good Prognosis', filter: () => setPrognosisFilter('good') },
+    { label: 'Poor Prognosis', filter: () => setPrognosisFilter('poor') },
+    { label: 'JAK2', term: 'JAK2' },
+    { label: 'FLT3', term: 'FLT3' },
+    { label: 'NPM1', term: 'NPM1' },
+    { label: 'BCR::ABL1', term: 'BCR::ABL1' },
+    { label: 'TP53', term: 'TP53' },
+    { label: 'BRAF', term: 'BRAF' },
+  ];
 
   // Export functions
   const exportAsJSON = () => {
@@ -972,37 +1048,85 @@ const HaematopathologyReference = () => {
   };
 
   const filteredDiseases = useMemo(() => {
-    if (!searchTerm && !showFavorites) return diseases;
+    let filtered = {};
+    let totalResults = 0;
 
+    // Start with all diseases or favorites
     if (showFavorites) {
-      const filtered = {};
       favorites.forEach(fav => {
         if (!filtered[fav.category]) filtered[fav.category] = {};
         if (!filtered[fav.category][fav.prognosis]) filtered[fav.category][fav.prognosis] = [];
         filtered[fav.category][fav.prognosis].push(fav.disease);
+        totalResults++;
       });
+      setSearchResultsCount(totalResults);
       return filtered;
     }
 
     const term = searchTerm.toLowerCase();
-    const filtered = {};
+    const categoriesToSearch = globalSearch ? Object.keys(diseases) : [activeTab];
 
-    Object.keys(diseases).forEach(category => {
+    categoriesToSearch.forEach(category => {
       filtered[category] = {};
       Object.keys(diseases[category]).forEach(subcategory => {
-        const items = diseases[category][subcategory].filter(disease =>
-          disease.name.toLowerCase().includes(term) ||
-          disease.gene.toLowerCase().includes(term) ||
-          disease.features.some(f => f.toLowerCase().includes(term))
-        );
+        // Apply prognosis filter
+        if (prognosisFilter !== 'all') {
+          const prognosisMap = {
+            good: ['good', 'cytogenetics', 'cml', 'pv', 'all'],
+            intermediate: ['intermediate', 'mutations', 'etpmf', 'cnl'],
+            poor: ['poor', 'mastocytosis', 'lymphomas']
+          };
+          if (!prognosisMap[prognosisFilter]?.includes(subcategory)) {
+            return;
+          }
+        }
+
+        const items = diseases[category][subcategory].filter(disease => {
+          if (!term) return true;
+
+          // Apply search filter
+          switch (searchFilter) {
+            case 'name':
+              return disease.name.toLowerCase().includes(term);
+            case 'gene':
+              return disease.gene.toLowerCase().includes(term);
+            case 'features':
+              return disease.features.some(f => f.toLowerCase().includes(term));
+            default: // 'all'
+              return (
+                disease.name.toLowerCase().includes(term) ||
+                disease.gene.toLowerCase().includes(term) ||
+                disease.features.some(f => f.toLowerCase().includes(term))
+              );
+          }
+        });
+
         if (items.length > 0) {
           filtered[category][subcategory] = items;
+          totalResults += items.length;
         }
       });
     });
 
+    setSearchResultsCount(totalResults);
     return filtered;
-  }, [searchTerm, showFavorites, favorites]);
+  }, [searchTerm, showFavorites, favorites, searchFilter, prognosisFilter, globalSearch, activeTab]);
+
+  // Highlight matching text in search results
+  const highlightMatch = (text, term) => {
+    if (!term || term.length < 2) return text;
+
+    const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const parts = text.split(regex);
+
+    return parts.map((part, i) =>
+      regex.test(part) ? (
+        <mark key={i} className="bg-yellow-300 px-0.5 rounded">{part}</mark>
+      ) : (
+        part
+      )
+    );
+  };
 
   const getPrognosisColor = (prognosis) => {
     const colors = {
@@ -1019,40 +1143,55 @@ const HaematopathologyReference = () => {
     const isExpanded = expandedCards[cardId];
     const favorited = isFavorite(disease, category || activeTab, prognosis);
     const selectedCompare = isSelectedForCompare(disease, category || activeTab, prognosis);
+    const currentCategory = category || activeTab;
 
     return (
       <div
         key={cardId}
         className={`border-2 rounded-lg p-4 mb-3 transition-all ${
           prognosis ? getPrognosisColor(prognosis) : 'bg-gray-50 border-gray-300'
-        } ${selectedCompare ? 'ring-4 ring-blue-500' : ''}`}
+        } ${selectedCompare ? 'ring-4 ring-blue-500 shadow-lg' : ''} hover:shadow-md`}
       >
         <div className="flex justify-between items-start">
           <div
             className="flex-1 cursor-pointer"
             onClick={() => toggleCard(cardId)}
           >
-            <h3 className="font-bold text-lg mb-1">{disease.name}</h3>
-            <p className="font-mono text-sm font-semibold">{disease.gene}</p>
+            {/* Show category badge in global search */}
+            {globalSearch && searchTerm && (
+              <span className="inline-block text-xs font-bold uppercase tracking-wide bg-gray-200 text-gray-600 px-2 py-0.5 rounded mb-2">
+                {currentCategory}
+              </span>
+            )}
+            <h3 className="font-bold text-lg mb-1">
+              {highlightMatch(disease.name, searchTerm)}
+            </h3>
+            <p className="font-mono text-sm font-semibold">
+              {highlightMatch(disease.gene, searchTerm)}
+            </p>
           </div>
 
           <div className="flex gap-2 ml-3">
-            {compareMode && (
-              <button
-                onClick={() => toggleCompareSelection(disease, category || activeTab, prognosis)}
-                className={`p-2 rounded-lg transition-colors ${
-                  selectedCompare
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white hover:bg-gray-100'
-                }`}
-                title={selectedCompare ? 'Remove from comparison' : 'Add to comparison'}
-              >
-                <GitCompare size={18} />
-              </button>
-            )}
+            {/* Always show compare button but style differently in compare mode */}
+            <button
+              onClick={() => {
+                if (!compareMode) setCompareMode(true);
+                toggleCompareSelection(disease, currentCategory, prognosis);
+              }}
+              className={`p-2 rounded-lg transition-colors ${
+                selectedCompare
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : compareMode
+                    ? 'bg-white hover:bg-blue-50 border-2 border-blue-300'
+                    : 'bg-white/70 hover:bg-white'
+              }`}
+              title={selectedCompare ? 'Remove from comparison' : 'Add to comparison'}
+            >
+              <GitCompare size={18} />
+            </button>
 
             <button
-              onClick={() => toggleFavorite(disease, category || activeTab, prognosis)}
+              onClick={() => toggleFavorite(disease, currentCategory, prognosis)}
               className={`p-2 rounded-lg transition-colors ${
                 favorited
                   ? 'bg-yellow-400 text-white'
@@ -1063,7 +1202,7 @@ const HaematopathologyReference = () => {
               <Star size={18} fill={favorited ? 'white' : 'none'} />
             </button>
 
-            <button onClick={() => toggleCard(cardId)} className="p-2">
+            <button onClick={() => toggleCard(cardId)} className="p-2 hover:bg-white/50 rounded-lg">
               {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
             </button>
           </div>
@@ -1074,7 +1213,7 @@ const HaematopathologyReference = () => {
             {disease.features.map((feature, idx) => (
               <li key={idx} className="flex items-start">
                 <span className="mr-2">•</span>
-                <span>{feature}</span>
+                <span>{highlightMatch(feature, searchTerm)}</span>
               </li>
             ))}
           </ul>
@@ -1083,51 +1222,255 @@ const HaematopathologyReference = () => {
     );
   };
 
+  // Find common and unique features for comparison
+  const getComparisonAnalysis = useCallback(() => {
+    if (selectedForCompare.length < 2) return null;
+
+    const allFeatures = selectedForCompare.map(item =>
+      new Set(item.disease.features.map(f => f.toLowerCase()))
+    );
+
+    // Find common features (present in all)
+    const commonFeatures = [];
+    if (allFeatures.length > 0) {
+      allFeatures[0].forEach(feature => {
+        if (allFeatures.every(set => set.has(feature))) {
+          const original = selectedForCompare[0].disease.features.find(
+            f => f.toLowerCase() === feature
+          );
+          if (original) commonFeatures.push(original);
+        }
+      });
+    }
+
+    // Find unique features for each disease
+    const uniqueFeatures = selectedForCompare.map((item, idx) => {
+      return item.disease.features.filter(feature => {
+        const lowerFeature = feature.toLowerCase();
+        return allFeatures.every((set, setIdx) =>
+          setIdx === idx || !set.has(lowerFeature)
+        );
+      });
+    });
+
+    return { commonFeatures, uniqueFeatures };
+  }, [selectedForCompare]);
+
+  // Export comparison as text
+  const exportComparison = () => {
+    if (selectedForCompare.length === 0) return;
+
+    let text = `HAEMATOPATHOLOGY COMPARISON\n`;
+    text += `Generated: ${new Date().toLocaleString()}\n`;
+    text += `${'='.repeat(60)}\n\n`;
+
+    selectedForCompare.forEach((item, idx) => {
+      text += `${idx + 1}. ${item.disease.name}\n`;
+      text += `   Category: ${item.category.toUpperCase()} | Prognosis: ${item.prognosis || 'N/A'}\n`;
+      text += `   Gene: ${item.disease.gene}\n`;
+      text += `   Features:\n`;
+      item.disease.features.forEach(f => {
+        text += `   - ${f}\n`;
+      });
+      text += `\n`;
+    });
+
+    const analysis = getComparisonAnalysis();
+    if (analysis && analysis.commonFeatures.length > 0) {
+      text += `COMMON FEATURES:\n`;
+      analysis.commonFeatures.forEach(f => {
+        text += `- ${f}\n`;
+      });
+    }
+
+    text += `\n${'='.repeat(60)}\n`;
+    text += `By Dr Abdul Mannan FRCPath FCPS | Blood🩸Doctor\n`;
+
+    navigator.clipboard.writeText(text).then(() => {
+      alert('Comparison copied to clipboard!');
+    });
+  };
+
   const renderComparisonView = () => {
     if (selectedForCompare.length === 0) {
       return (
         <div className="text-center py-12 text-gray-500">
           <GitCompare size={64} className="mx-auto mb-4 text-gray-300" />
           <p className="text-xl mb-2">No diseases selected for comparison</p>
-          <p>Click the compare icon on disease cards to add them (max 3)</p>
+          <p className="mb-6">Click the compare icon <GitCompare size={16} className="inline" /> on any disease card to add it (max 4)</p>
+
+          {/* Quick compare suggestions */}
+          <div className="mt-8 max-w-2xl mx-auto">
+            <p className="text-sm font-semibold mb-3 text-gray-600">Popular Comparisons:</p>
+            <div className="flex flex-wrap gap-2 justify-center">
+              <button
+                onClick={() => {
+                  // Pre-select CBF AMLs for comparison
+                  const cbf1 = diseases.aml.good[0]; // t(8;21)
+                  const cbf2 = diseases.aml.good[1]; // inv(16)
+                  setSelectedForCompare([
+                    { disease: cbf1, category: 'aml', prognosis: 'good', id: `aml-good-${cbf1.name}` },
+                    { disease: cbf2, category: 'aml', prognosis: 'good', id: `aml-good-${cbf2.name}` }
+                  ]);
+                }}
+                className="px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-sm transition-colors"
+              >
+                CBF AMLs (t(8;21) vs inv(16))
+              </button>
+              <button
+                onClick={() => {
+                  const flt3 = diseases.aml.poor.find(d => d.name.includes('FLT3'));
+                  const npm1 = diseases.aml.good.find(d => d.name.includes('NPM1'));
+                  if (flt3 && npm1) {
+                    setSelectedForCompare([
+                      { disease: flt3, category: 'aml', prognosis: 'poor', id: `aml-poor-${flt3.name}` },
+                      { disease: npm1, category: 'aml', prognosis: 'good', id: `aml-good-${npm1.name}` }
+                    ]);
+                  }
+                }}
+                className="px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-sm transition-colors"
+              >
+                FLT3-ITD vs NPM1
+              </button>
+              <button
+                onClick={() => {
+                  const cll_good = diseases.bcell.lymphomas.find(d => d.name.includes('CLL') && d.name.includes('Good'));
+                  const cll_poor = diseases.bcell.lymphomas.find(d => d.name.includes('CLL') && d.name.includes('Poor'));
+                  if (cll_good && cll_poor) {
+                    setSelectedForCompare([
+                      { disease: cll_good, category: 'bcell', prognosis: 'lymphomas', id: `bcell-lymphomas-${cll_good.name}` },
+                      { disease: cll_poor, category: 'bcell', prognosis: 'lymphomas', id: `bcell-lymphomas-${cll_poor.name}` }
+                    ]);
+                  }
+                }}
+                className="px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-sm transition-colors"
+              >
+                CLL Good vs Poor Prognosis
+              </button>
+            </div>
+          </div>
         </div>
       );
     }
 
+    const analysis = getComparisonAnalysis();
+
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {selectedForCompare.map((item) => (
-          <div key={item.id} className={`border-2 rounded-lg p-6 ${getPrognosisColor(item.prognosis)}`}>
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <span className="text-xs font-bold uppercase tracking-wide opacity-70">
-                  {item.category} - {item.prognosis || 'N/A'}
-                </span>
-              </div>
-              <button
-                onClick={() => toggleCompareSelection(item.disease, item.category, item.prognosis)}
-                className="p-1 hover:bg-white/50 rounded"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <h3 className="font-bold text-xl mb-2">{item.disease.name}</h3>
-            <p className="font-mono text-sm font-semibold mb-4">{item.disease.gene}</p>
-
-            <div className="space-y-2">
-              <h4 className="font-semibold text-sm">Key Features:</h4>
-              <ul className="space-y-1 text-sm">
-                {item.disease.features.map((feature, fidx) => (
-                  <li key={fidx} className="flex items-start">
-                    <span className="mr-2">•</span>
-                    <span>{feature}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+      <div className="space-y-6">
+        {/* Comparison toolbar */}
+        <div className="flex justify-between items-center bg-blue-50 p-4 rounded-lg border border-blue-200">
+          <div className="flex items-center gap-4">
+            <span className="font-semibold text-blue-900">
+              Comparing {selectedForCompare.length} disease{selectedForCompare.length !== 1 ? 's' : ''}
+            </span>
+            {selectedForCompare.length < 4 && (
+              <span className="text-sm text-blue-600">
+                (can add {4 - selectedForCompare.length} more)
+              </span>
+            )}
           </div>
-        ))}
+          <div className="flex gap-2">
+            <button
+              onClick={exportComparison}
+              className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-2 text-sm transition-colors"
+            >
+              <Share2 size={16} />
+              Copy to Clipboard
+            </button>
+            <button
+              onClick={() => setSelectedForCompare([])}
+              className="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm transition-colors"
+            >
+              Clear All
+            </button>
+          </div>
+        </div>
+
+        {/* Common features section */}
+        {analysis && analysis.commonFeatures.length > 0 && (
+          <div className="bg-purple-50 border-2 border-purple-200 rounded-lg p-4">
+            <h3 className="font-bold text-purple-900 mb-2 flex items-center gap-2">
+              <Layers size={18} />
+              Common Features ({analysis.commonFeatures.length})
+            </h3>
+            <ul className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {analysis.commonFeatures.map((feature, idx) => (
+                <li key={idx} className="flex items-start text-sm text-purple-800">
+                  <CheckCircle2 size={14} className="mr-2 mt-0.5 text-purple-500" />
+                  {feature}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Disease cards grid */}
+        <div className={`grid gap-6 ${
+          selectedForCompare.length === 1 ? 'grid-cols-1 max-w-xl mx-auto' :
+          selectedForCompare.length === 2 ? 'grid-cols-1 md:grid-cols-2' :
+          selectedForCompare.length === 3 ? 'grid-cols-1 md:grid-cols-3' :
+          'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'
+        }`}>
+          {selectedForCompare.map((item, idx) => (
+            <div key={item.id} className={`border-2 rounded-lg p-5 ${getPrognosisColor(item.prognosis)} relative`}>
+              {/* Number badge */}
+              <div className="absolute -top-3 -left-3 w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold shadow-lg">
+                {idx + 1}
+              </div>
+
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <span className="inline-block text-xs font-bold uppercase tracking-wide opacity-70 bg-white/50 px-2 py-1 rounded">
+                    {item.category.toUpperCase()}
+                  </span>
+                  <span className={`inline-block ml-2 text-xs font-bold uppercase tracking-wide px-2 py-1 rounded ${
+                    item.prognosis === 'good' ? 'bg-green-500 text-white' :
+                    item.prognosis === 'poor' ? 'bg-red-500 text-white' :
+                    item.prognosis === 'intermediate' ? 'bg-yellow-500 text-white' :
+                    'bg-gray-500 text-white'
+                  }`}>
+                    {item.prognosis || 'N/A'}
+                  </span>
+                </div>
+                <button
+                  onClick={() => toggleCompareSelection(item.disease, item.category, item.prognosis)}
+                  className="p-1.5 hover:bg-white/50 rounded-full transition-colors"
+                  title="Remove from comparison"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <h3 className="font-bold text-xl mb-2">{item.disease.name}</h3>
+              <p className="font-mono text-sm font-semibold mb-4 bg-white/30 px-2 py-1 rounded inline-block">
+                {item.disease.gene}
+              </p>
+
+              <div className="space-y-2">
+                <h4 className="font-semibold text-sm flex items-center gap-1">
+                  <Target size={14} />
+                  Key Features:
+                </h4>
+                <ul className="space-y-1.5 text-sm">
+                  {item.disease.features.map((feature, fidx) => {
+                    const isUnique = analysis?.uniqueFeatures[idx]?.includes(feature);
+                    return (
+                      <li key={fidx} className={`flex items-start ${isUnique ? 'font-semibold' : ''}`}>
+                        <span className={`mr-2 ${isUnique ? 'text-blue-600' : ''}`}>
+                          {isUnique ? '★' : '•'}
+                        </span>
+                        <span>{feature}</span>
+                        {isUnique && (
+                          <span className="ml-1 text-xs bg-blue-200 text-blue-800 px-1 rounded">unique</span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   };
@@ -1511,22 +1854,49 @@ const HaematopathologyReference = () => {
         </div>
       )}
 
-      {/* Search Bar */}
+      {/* Enhanced Search Bar */}
       <div className="bg-white border-b shadow-sm p-4">
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-7xl mx-auto space-y-3">
+          {/* Main search input */}
           <div className="relative">
             <Search className="absolute left-3 top-3 text-gray-400" size={20} />
             <input
+              ref={searchInputRef}
               type="text"
               placeholder="Search diseases, genes, or features..."
-              className="w-full pl-10 pr-32 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+              className="w-full pl-10 pr-44 py-2.5 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-lg"
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
                 setShowFavorites(false);
+                setShowSearchSuggestions(true);
               }}
+              onFocus={() => setShowSearchSuggestions(true)}
+              onKeyDown={handleSearchKeyDown}
             />
+
+            {/* Search results count */}
+            {searchTerm && (
+              <span className="absolute right-36 top-3 text-sm text-gray-500">
+                {searchResultsCount} result{searchResultsCount !== 1 ? 's' : ''}
+              </span>
+            )}
+
             <div className="absolute right-2 top-1.5 flex gap-2">
+              {searchTerm && (
+                <button
+                  onClick={() => {
+                    setSearchTerm('');
+                    setShowSearchSuggestions(false);
+                    searchInputRef.current?.focus();
+                  }}
+                  className="p-1.5 hover:bg-gray-100 rounded-lg"
+                  title="Clear search"
+                >
+                  <X size={18} className="text-gray-400" />
+                </button>
+              )}
+
               <button
                 onClick={() => {
                   setShowFavorites(!showFavorites);
@@ -1553,37 +1923,152 @@ const HaematopathologyReference = () => {
                 <Clock size={16} />
               </button>
             </div>
-          </div>
 
-          {/* Recent Searches Dropdown */}
-          {showRecent && recentSearches.length > 0 && (
-            <div className="absolute mt-2 bg-white border-2 border-gray-300 rounded-lg shadow-lg p-3 z-20 w-80">
-              <div className="flex justify-between items-center mb-2">
-                <h3 className="font-semibold text-sm">Recent Searches</h3>
-                <button
-                  onClick={clearRecentSearches}
-                  className="text-xs text-red-600 hover:text-red-800"
-                >
-                  Clear all
-                </button>
-              </div>
-              <div className="space-y-1">
-                {recentSearches.map((term, idx) => (
+            {/* Search Suggestions Dropdown */}
+            {showSearchSuggestions && searchSuggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white border-2 border-blue-200 rounded-lg shadow-xl z-30 overflow-hidden">
+                {searchSuggestions.map((suggestion, idx) => (
                   <button
                     key={idx}
                     onClick={() => {
-                      setSearchTerm(term);
-                      setShowRecent(false);
-                      setShowFavorites(false);
+                      setSearchTerm(suggestion.text);
+                      setShowSearchSuggestions(false);
                     }}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-100 rounded text-sm"
+                    className={`w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors ${
+                      highlightedSuggestion === idx ? 'bg-blue-50' : 'hover:bg-gray-50'
+                    }`}
                   >
-                    {term}
+                    <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded ${
+                      suggestion.type === 'gene' ? 'bg-purple-100 text-purple-700' :
+                      suggestion.type === 'name' ? 'bg-blue-100 text-blue-700' :
+                      'bg-gray-100 text-gray-700'
+                    }`}>
+                      {suggestion.type}
+                    </span>
+                    <span className="flex-1 truncate">{suggestion.text}</span>
+                    <span className="text-xs text-gray-400 uppercase">{suggestion.category}</span>
                   </button>
                 ))}
               </div>
+            )}
+
+            {/* Recent Searches Dropdown */}
+            {showRecent && recentSearches.length > 0 && (
+              <div className="absolute top-full left-0 mt-1 bg-white border-2 border-gray-300 rounded-lg shadow-lg p-3 z-30 w-80">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="font-semibold text-sm">Recent Searches</h3>
+                  <button
+                    onClick={clearRecentSearches}
+                    className="text-xs text-red-600 hover:text-red-800"
+                  >
+                    Clear all
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  {recentSearches.map((term, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => {
+                        setSearchTerm(term);
+                        setShowRecent(false);
+                        setShowFavorites(false);
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-gray-100 rounded text-sm flex items-center gap-2"
+                    >
+                      <Clock size={14} className="text-gray-400" />
+                      {term}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Search filters and quick searches */}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Search scope filter */}
+            <div className="flex items-center gap-2">
+              <Filter size={16} className="text-gray-400" />
+              <select
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+                className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 focus:border-blue-500 focus:outline-none"
+              >
+                <option value="all">All Fields</option>
+                <option value="name">Disease Name</option>
+                <option value="gene">Gene/Mutation</option>
+                <option value="features">Features</option>
+              </select>
             </div>
-          )}
+
+            {/* Prognosis filter */}
+            <div className="flex items-center gap-2">
+              <ArrowUpDown size={16} className="text-gray-400" />
+              <select
+                value={prognosisFilter}
+                onChange={(e) => setPrognosisFilter(e.target.value)}
+                className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 focus:border-blue-500 focus:outline-none"
+              >
+                <option value="all">All Prognosis</option>
+                <option value="good">Good Prognosis</option>
+                <option value="intermediate">Intermediate</option>
+                <option value="poor">Poor Prognosis</option>
+              </select>
+            </div>
+
+            {/* Global search toggle */}
+            <button
+              onClick={() => setGlobalSearch(!globalSearch)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                globalSearch
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+              }`}
+              title="Search across all categories"
+            >
+              <Zap size={14} />
+              {globalSearch ? 'All Categories' : 'Current Tab Only'}
+            </button>
+
+            {/* Divider */}
+            <div className="h-6 w-px bg-gray-300 mx-1"></div>
+
+            {/* Quick search buttons */}
+            <div className="flex items-center gap-1 flex-wrap">
+              <span className="text-xs text-gray-500 mr-1">Quick:</span>
+              {quickSearchTerms.map((item, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    if (item.term) {
+                      setSearchTerm(item.term);
+                      setShowFavorites(false);
+                    }
+                    if (item.filter) {
+                      item.filter();
+                    }
+                  }}
+                  className="px-2 py-1 text-xs bg-gray-100 hover:bg-blue-100 hover:text-blue-700 rounded transition-colors"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Clear filters */}
+            {(searchFilter !== 'all' || prognosisFilter !== 'all' || globalSearch) && (
+              <button
+                onClick={() => {
+                  setSearchFilter('all');
+                  setPrognosisFilter('all');
+                  setGlobalSearch(false);
+                }}
+                className="text-xs text-red-600 hover:text-red-800 ml-2"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
